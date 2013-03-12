@@ -3,24 +3,23 @@
 Plugin Name: Easy Redirection
 Plugin URI: http://blogsiteplugins.com
 Description: Create redirections with custom post types
-Version: 0.1
+Version: 0.2
 Author: Marty Thornley
 Author URI: http://martythornley.com
 */
-
-	//delete_option( 'saved_redirects' );
 	
-	if ( !is_admin() ) {
-		$saved_redirects = get_option( 'saved_redirects' );
-		//print '<pre>'; print_r( $saved_redirects ); print '</pre>';
-	}
-		
+	// testing only… empties out saved redirects:
+	//delete_option( 'saved_redirects' );
+
 	add_action( 'init' , 'easy_redirect_init' );
 	
 	/*
 	 * Init Actions
 	 */
 	function easy_redirect_init(){
+		
+		$role = get_role( 'administrator' );
+    	$role->add_cap( 'edit_redirects' ); 
 		
 		easy_redirect_post_types();
 		
@@ -50,16 +49,14 @@ Author URI: http://martythornley.com
 		
 		$current_url = $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
 		$siteurl = trailingslashit( get_option( 'siteurl' ) );
-
+		
 		// don't redirect on homepage		
 		if ( $current_url != $siteurl ) {
-			
 			$last = array_pop( explode( '/' , rtrim( $current_url , '/' ) ) );
 			$saved_redirects = get_option( 'saved_redirects' );
 
 			// if this url was listed in our redirects	
 			if ( $last != '' && isset( $saved_redirects[$last]  ) ) {
-				
 			
 				$url = str_replace( 'http://' , '' , $siteurl . $last );
 				$url = str_replace( 'https://' , '' , $url );
@@ -87,7 +84,7 @@ Author URI: http://martythornley.com
 	 * May not need except for information?
 	 */	
 	function easy_redirect_menus() {
-		add_submenu_page('edit.php?post_type=easy_redirect', 'Settings' , 'Settings' ,'edit_themes','easy_redirect','easy_redirect_admin');
+		add_submenu_page('edit.php?post_type=easy_redirect', 'Settings' , 'Settings' ,'edit_redirects','easy_redirect','easy_redirect_admin');
 	}
 
 	/*
@@ -136,7 +133,6 @@ Author URI: http://martythornley.com
 		$redirect_settings = get_post_meta( $post_ID , 'redirect_settings' , true );
 		
 		$saved_redirects = get_option( 'saved_redirects' );
-
 		?>
 		<h4>Url to redirect</h4>
 		<?php echo get_option( 'siteurl') ; ?>/<input type="text" name="easy_redirect_post[url]" value="<?php echo $redirect_settings['url']; ?>"/>
@@ -145,7 +141,7 @@ Author URI: http://martythornley.com
 		<input type="hidden" name="easy_redirect_post[old_url]" value="<?php echo $redirect_settings['url']; ?>"/input>
 		
 		<?php $conflict = get_post_meta( $post_ID , 'redirect_conflict' , true ); ?>
-						
+
 		<?php if ( is_array( $conflict ) ) { ?>
 		
 			<?php $conflict_post = get_post( $conflict['post'] ); ?>
@@ -173,38 +169,38 @@ Author URI: http://martythornley.com
 	function easy_redirect_save_post( $postid , $post ){
 			
 		global $wpdb;
-		
 		// only for our post type
 		if ( $post->post_type != 'easy_redirect' ) 
 			return $postid;
-			
-		// only if nonce is good	
-		if ( isset( $_POST['easy_redirect_save_post'] ) && !wp_verify_nonce( $_POST['easy_redirect_save_post'] , 'easy_redirect_save_post') || !current_user_can( 'edit_theme' ) ) 
-			return $postid;
 
+		// only if nonce is good	
+		if ( isset( $_POST['easy_redirect_save_post'] ) && !wp_verify_nonce( $_POST['easy_redirect_save_post'] , 'easy_redirect_save_post') || !current_user_can( 'edit_redirects' ) ) 
+			return $postid;
+		
+		// get basic info… Sanitized further up when needed
 		$old_url 	= $_POST['easy_redirect_post']['old_url'];
 		$url 		= strtolower( $_POST['easy_redirect_post']['url'] );
 		$dest 		= strtolower( $_POST['easy_redirect_post']['dest'] );
 		
-		// NEED TO SANITIZE
-
-									
 		// save for use by site
 		$saved_redirects = get_option( 'saved_redirects' );
-		
+
 		// delete old one...
 		if ( $old_url != $url && isset( $saved_redirects[$old_url] ) ){
 			unset( $saved_redirects[$old_url] );
 		}
 		
 		// check ids too - make sure we have 1 per saved post
-		foreach ( $saved_redirects as $saved_url => $saved_redirect ) {
-			
-			if ( isset( $saved_redirect['post'] ) && $saved_redirect['post'] == $postid ) {
-				unset( $saved_redirects[$saved_url] );
+		if ( is_array( $saved_redirects ) ) {
+
+			foreach ( $saved_redirects as $saved_url => $saved_redirect ) {
+				
+				if ( isset( $saved_redirect['post'] ) && $saved_redirect['post'] == $postid ) {
+					unset( $saved_redirects[$saved_url] );
+				}
 			}
-		}
 		
+		}
 		// empty out saved settings
 		if ( $_POST['easy_redirect_post']['url'] == '' ) {
 		
@@ -219,7 +215,7 @@ Author URI: http://martythornley.com
 		// if there is not already one with the same url saved…
 		} elseif ( !isset( $saved_redirects[$url] ) ) {
 			
-			// setup meta		
+			// sanitize and setup meta		
 			$redirect_settings = array( 
 				'url' 		=> sanitize_text_field( $url ),
 				'dest' 		=> esc_url_raw( $dest ),
