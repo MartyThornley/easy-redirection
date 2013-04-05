@@ -3,7 +3,7 @@
 Plugin Name: Easy Redirection
 Plugin URI: http://blogsiteplugins.com
 Description: Create redirections with custom post types
-Version: 0.2
+Version: 0.3
 Author: Marty Thornley
 Author URI: http://martythornley.com
 */
@@ -50,27 +50,33 @@ Author URI: http://martythornley.com
 		$current_url = $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
 		$siteurl = trailingslashit( get_option( 'siteurl' ) );
 		
-		// don't redirect on homepage		
+		// don't redirect on homepage ( make sure main site can never be redirected by accident )	
 		if ( $current_url != $siteurl ) {
+			
+			// get last section of url
 			$last = array_pop( explode( '/' , rtrim( $current_url , '/' ) ) );
+			
+			// get saved redirects
 			$saved_redirects = get_option( 'saved_redirects' );
 
 			// if this url was listed in our redirects	
 			if ( $last != '' && isset( $saved_redirects[$last]  ) ) {
 			
 				$url = str_replace( 'http://' , '' , $siteurl . $last );
-				$url = str_replace( 'https://' , '' , $url );
-				
+				$url = str_replace( 'https://' , '' , $url );				
 				
 				// if we are on the url that should be redirected
-				// and if we are not on the home page ( make sure main site can never be redirected by accident )
 				if ( $url == $current_url ) {
-					$response = wp_remote_get( trim( $saved_redirects[$last]['dest'] ) , array( 'sslverify' => false ) );
+					
+					$dest =  esc_url_raw( $saved_redirects[$last]['dest'] );
+					
+					// test destination to see if it exists
+					$response = wp_remote_get( $dest , array( 'sslverify' => false ) );
 
 					if ( is_wp_error( $response ) ) {
 						// wp should end up with 404 page?
 					} else {
-						wp_redirect( esc_url_raw( $saved_redirects[$last]['dest'] ), '301' );
+						wp_redirect( $dest , '301' );
 						exit;
 					}
 				}		
@@ -138,6 +144,11 @@ Author URI: http://martythornley.com
 		<?php echo get_option( 'siteurl') ; ?>/<input type="text" name="easy_redirect_post[url]" value="<?php echo $redirect_settings['url']; ?>"/>
 		<h4>Url to redirect to</h4>
 		<input type="text" name="easy_redirect_post[dest]" value="<?php echo $redirect_settings['dest']; ?>"/input>
+		<h4>Url to redirect to</h4>
+
+		<input type="text" name="easy_redirect_post[dest]" value="<?php echo $redirect_settings['dest']; ?>"/input>
+
+
 		<input type="hidden" name="easy_redirect_post[old_url]" value="<?php echo $redirect_settings['url']; ?>"/input>
 		
 		<?php $conflict = get_post_meta( $post_ID , 'redirect_conflict' , true ); ?>
@@ -169,13 +180,18 @@ Author URI: http://martythornley.com
 	function easy_redirect_save_post( $postid , $post ){
 			
 		global $wpdb;
-		// only for our post type
-		if ( $post->post_type != 'easy_redirect' ) 
-			return $postid;
+		
+		// not during autosave...
+		if ( defined('DOING_AUTOSAVE') && DOING_AUTOSAVE ) 
+			return;
+		
+		// only for our post type and people who can edit our post type
+		if ( $post->post_type != 'easy_redirect'  || !current_user_can( 'edit_redirects' ) ) 
+			return;
 
 		// only if nonce is good	
-		if ( isset( $_POST['easy_redirect_save_post'] ) && !wp_verify_nonce( $_POST['easy_redirect_save_post'] , 'easy_redirect_save_post') || !current_user_can( 'edit_redirects' ) ) 
-			return $postid;
+		if ( isset( $_POST['easy_redirect_save_post'] ) && !wp_verify_nonce( $_POST['easy_redirect_save_post'] , 'easy_redirect_save_post') ) 
+			return;
 		
 		// get basic info… Sanitized further up when needed
 		$old_url 	= $_POST['easy_redirect_post']['old_url'];
@@ -192,15 +208,13 @@ Author URI: http://martythornley.com
 		
 		// check ids too - make sure we have 1 per saved post
 		if ( is_array( $saved_redirects ) ) {
-
 			foreach ( $saved_redirects as $saved_url => $saved_redirect ) {
-				
 				if ( isset( $saved_redirect['post'] ) && $saved_redirect['post'] == $postid ) {
 					unset( $saved_redirects[$saved_url] );
 				}
 			}
-		
 		}
+		
 		// empty out saved settings
 		if ( $_POST['easy_redirect_post']['url'] == '' ) {
 		
@@ -245,8 +259,9 @@ Author URI: http://martythornley.com
 		}
 
 		update_post_meta ( $postid, 'redirect_settings' , $redirect_settings );
-		update_option( 'saved_redirects' , $saved_redirects );			
 		update_post_meta ( $postid, 'redirect_conflict' , $redirect_conflict );
+
+		update_option( 'saved_redirects' , $saved_redirects );			
 		
 	}
 
@@ -288,7 +303,7 @@ Author URI: http://martythornley.com
 			
 		global $wpdb;
 		
-		$post = get_post($postid);
+		$post = get_post( $postid );
 	
 		if ( $post->post_type != 'easy_redirect' ) 
 			return $postid;
